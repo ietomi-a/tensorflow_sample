@@ -47,7 +47,7 @@ class PTBModel(object):
 
   def __init__(self, is_training, config, input_):
     self._is_training = is_training
-    self._input = input_
+    self._input = input_ # shape = (batch_size, num_steps)
     self._rnn_params = None
     self._cell = None
     self.batch_size = input_.batch_size
@@ -59,11 +59,12 @@ class PTBModel(object):
       embedding = tf.get_variable(
           "embedding", [vocab_size, size], dtype=data_type())
       inputs = tf.nn.embedding_lookup( embedding, input_.input_data )
-
+      # inputs.shape =(batch_size, num_steps, hidden_size)
     if is_training and config.keep_prob < 1:
       inputs = tf.nn.dropout(inputs, config.keep_prob)
 
     output, state = self._build_rnn_graph( inputs, config, is_training )
+    # output.shape = ( batch_size*time_steps, hidden_size )
 
     softmax_w = tf.get_variable(
         "softmax_w", [size, vocab_size], dtype=data_type())
@@ -170,10 +171,12 @@ class PTBModel(object):
     outputs = []
     with tf.variable_scope("RNN"):
       for time_step in range(self.num_steps):
-        if time_step > 0: tf.get_variable_scope().reuse_variables()
+        if time_step > 0:
+          tf.get_variable_scope().reuse_variables()
         (cell_output, state) = cell( inputs[:, time_step, :], state)
+        print( cell_output.shape )
         outputs.append(cell_output)
-    output = tf.reshape(tf.concat(outputs, 1), [-1, config.hidden_size])
+    output = tf.reshape( tf.concat(outputs, 1), [-1, config.hidden_size] )
     return output, state
 
   def assign_lr(self, session, lr_value):
