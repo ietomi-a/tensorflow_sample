@@ -1,0 +1,11 @@
+# 以下を参考にした。
+https://qiita.com/keisuke-nakata/items/1e43c6698df800ecad73
+
+# 以下については実装を調べること!
+tf.contrib.rnn.BasicLSTMCell
+tf.contrib.rnn.LSTMBlockCell
+tf.contrib.rnn.MultiRNNCell # セルをまとめる。
+
+
+# RNN のコツなど
+https://kuune.org/text/2017/07/13/market-price-prediction-with-deeplearning/
