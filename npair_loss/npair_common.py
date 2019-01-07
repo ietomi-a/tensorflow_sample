@@ -36,12 +36,28 @@ def read_function(example):
             "anc_image": tf.FixedLenFeature((), tf.string ),
             "pos_image": tf.FixedLenFeature((), tf.string ),                
         }) # データ構造を解析
-
     label = tf.cast( parsed_features["label"], tf.int32)
     anc_image = get_tensor_image( parsed_features["anc_image"] )
-    pos_image = get_tensor_image( parsed_features["pos_image"] )   
-
+    pos_image = get_tensor_image( parsed_features["pos_image"] ) 
+ 
     return anc_image, pos_image, label
+
+
+def read_function2(example):
+    parsed_features = tf.parse_single_example(
+        example,
+        features={
+            "label": tf.FixedLenFeature((), tf.int64 ),
+            "anc_image": tf.FixedLenFeature((), tf.string ),
+            "pos_image": tf.FixedLenFeature((), tf.string ),                
+        }) # データ構造を解析
+    label = tf.cast( parsed_features["label"], tf.int32)
+    features = {
+        "anc_image": get_tensor_image( parsed_features["anc_image"] ),
+        "pos_image": get_tensor_image( parsed_features["pos_image"] ),
+    }
+    return features, label
+
 
 def create_network2( x, TARGET_SIZE, space_name="embedding", reuse=False ):
     # 2 になっているのはたまたま(初期のものがうまく行かなかった経緯がある.)

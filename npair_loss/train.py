@@ -13,7 +13,7 @@ def train():
     TARGET_SIZE = 3  # 教師画像の種類数, 0 - 9 までの 10個.
 
     BATCH_SIZE = 20  # バッチサイズ
-    MAX_STEPS = 2000  # 学習回数
+    MAX_STEPS = 1000  # 学習回数
     NUM_THREADS = 4  # スレッド
 
     INPUT_TFRECORD_TRAIN = "npair_train.tfrecord"  # TFRecordファイル名（学習用）
@@ -30,7 +30,7 @@ def train():
     iter_init_op = iterator.make_initializer(dataset)  # イテレータを初期化するオペレータ.
 
     anc_xs, pos_xs, ys_ = iterator.get_next()  # 遅延評価されるして返される要素.
-
+    
     ys1 = create_network2( anc_xs, TARGET_SIZE )
     ys2 = create_network2( pos_xs, TARGET_SIZE, reuse=True )
     loss = metric_learning.npairs_loss( ys_, ys1, ys2 )
