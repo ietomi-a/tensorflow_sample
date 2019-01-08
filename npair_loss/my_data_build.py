@@ -40,7 +40,7 @@ def write_image_by_tfrecord( image_obj, label, writer ):
     writer.write( example.SerializeToString() )
     return
 
-def fpath_list_to_tfrecord( fpaht_list, result_fpath ):
+def fpath_list_to_tfrecord( fpath_list, result_fpath ):
     with tf.python_io.TFRecordWriter( result_fpath ) as writer:
         for fpath in fpath_list:
             fname = os.path.basename(fpath)
@@ -111,12 +111,15 @@ def tensorflow_read_and_write( tfrecord_fpath, result_dir ):
 
 
 # jpeg ファイルの作成.
-jpeg_dir = "mnist_jpeg_test2"
-#mnist = read_data_sets("MNIST_data",one_hot=True)
+mnist = read_data_sets("MNIST_data",one_hot=True)
 # print(type(mnist.test.images))  # numpy.ndarray
 # print(mnist.test.images.shape)  # (10000, 784)
-#numpy_ndarray_to_jpeg_files( mnist.test.images, (28,28),
-#                             jpeg_dir, mnist.test.labels )
+jpeg_dir = "mnist_jpeg_train2"
+numpy_ndarray_to_jpeg_files( mnist.train.images, (28,28),
+                             jpeg_dir, mnist.train.labels )
+# jpeg_dir = "mnist_jpeg_test2"
+# numpy_ndarray_to_jpeg_files( mnist.test.images, (28,28),
+#                              jpeg_dir, mnist.test.labels )
 
 # tfrecord 作成.
 #fpath_list = glob.glob( os.path.join( jpeg_dir , "*.jpg") )
