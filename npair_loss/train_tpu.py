@@ -72,9 +72,8 @@ def model_fn_for_npair_loss( features, labels, mode, params ):
 # tf.contrib.tpu.TPUEstimator の input_fn には params を引数とする関数を渡す必要がある.
 def train_input_fn3(params):
     NUM_THREADS = 4  # スレッド
-    INPUT_TFRECORD_TRAIN = "npair_train.tfrecord"  # TFRecordファイル名（学習用）
     
-    filenames = tf.constant( [ INPUT_TFRECORD_TRAIN ] )
+    filenames = tf.constant( [ params["input_data_path"] ] )
 
     dataset = tf.data.TFRecordDataset(filenames)  # ファイル名を遅延評価するパイプを作成.
     dataset = dataset.map( read_function2, NUM_THREADS) # ファイル名からデータを作成する遅延評価するパイプを作成.
@@ -116,6 +115,30 @@ def get_tpu_run_config(params):
 
     return run_config
 
+
+def get_my_params( use_tpu, is_local ):
+    print( "my_estimator start, use_tpu =", use_tpu )    
+    if is_local:
+        # model_dir: モデルデータの保存場所.
+        # input_data_path : TFRecordファイル名（学習用）
+        file_data_params = {
+            "model_dir": "model_dir_for_npair_loss",
+            "input_data_path" : "npair_train.tfrecord" }
+    else:
+        # TPU では VM のローカルはうまく見れないらしいので gcs のパスを指定する必要がある.
+        file_data_params = {
+            "model_dir": "gs://ietomi-test/test_model_log",
+            "input_data_path" : "gs://ietomi-test/npair_train.tfrecord" }
+
+    my_params = {
+        "model_dir": file_data_params["model_dir"],  # モデルデータの保存場所.
+        "save_steps": 100,  # 何ステップ毎にセーブするか.
+        'log_step_count_steps': 100,
+        "use_tpu" : use_tpu,
+        "max_steps": 1000,
+        "input_data_path": file_data_params["input_data_path"] }
+    return my_params
+
 def main():
     if len(sys.argv) >= 2 and sys.argv[1] == "use_tpu":
         use_tpu = True
@@ -123,35 +146,33 @@ def main():
         use_tpu = False  # local で実行する場合はここを False にして実行する。
         
     random_seed_set(1) # seed=1 はたまたまうまくいったので使っている.
-    BATCH_SIZE = 40  # バッチサイズは 8 の倍数でないとダメ.(TPUの制限)    
-    model_dir = "model_dir_for_npair_loss"
-    print( "my_estimator start, use_tpu =", use_tpu )
-    params = {
-        "model_dir": model_dir,  # モデルデータの保存場所.
-        "save_steps": 100,  # 何ステップ毎にセーブするか.
-        'log_step_count_steps': 100,
-        "use_tpu" : use_tpu,
-        "max_steps": 1000 
-    }
 
-    if params["use_tpu"]:
+    is_local = False
+    my_params = get_my_params( use_tpu, is_local )
+
+    # バッチサイズは 8 の倍数でないとダメ.(TPUの制限),
+    # また params にわたすと、 estimator の中で設定する名前とかぶるのでダメと言われるので
+    # とりあえず外だしで設定する.
+    batch_size = 40
+
+    if my_params["use_tpu"]:
         # ここで TPU への接続情報を設定してる.
-        run_config = get_tpu_run_config(params)
+        run_config = get_tpu_run_config(my_params)
     else:
         # ローカル実行の場合はとりあえずのものを与えれば ok.
         run_config = tf.contrib.tpu.RunConfig()
         
     tpu_estimator = tf.contrib.tpu.TPUEstimator(
-        use_tpu=params["use_tpu"],
+        use_tpu=my_params["use_tpu"],
         model_fn=model_fn_for_npair_loss,
         config=run_config,
-        train_batch_size=BATCH_SIZE,
-        eval_batch_size=BATCH_SIZE,
+        train_batch_size=batch_size,
+        eval_batch_size=batch_size,
         export_to_tpu=False,
-        params=params
+        params=my_params
     )
     
-    tpu_estimator.train( input_fn=train_input_fn3, max_steps=params["max_steps"] )
+    tpu_estimator.train( input_fn=train_input_fn3, max_steps=my_params["max_steps"] )
     
     print( "train ok")
     return
