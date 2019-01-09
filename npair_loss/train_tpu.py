@@ -1,5 +1,7 @@
 # coding: utf-8
 
+import sys
+
 import tensorflow as tf
 from tensorflow.contrib.losses import metric_learning
 
@@ -7,7 +9,13 @@ from npair_common import random_seed_set, read_function2, create_network2
 
 from tensorflow.contrib.tpu.python.tpu import async_checkpoint
 
-BATCH_SIZE = 40  # バッチサイズは 8 の倍数でないとダメ.(TPUの制限)
+#
+# 以下のサイトは TPU 固有のハマりどころをピックアップしているのでよい.
+# http://tensorflow.classcat.com/2018/04/23/tensorflow-programmers-guide-using-tpu/
+# 
+
+
+
 
 def create_hooks( loss, params ):
     hooks = []
@@ -41,11 +49,13 @@ def model_fn_for_npair_loss( features, labels, mode, params ):
         ys1 = create_network2( anc_xs, TARGET_SIZE )
         ys2 = create_network2( pos_xs, TARGET_SIZE, reuse=True )
         loss = metric_learning.npairs_loss( labels, ys1, ys2 )
-        optimizer = tf.train.AdamOptimizer( learning_rate ) 
-        optimizer = tf.contrib.tpu.CrossShardOptimizer(optimizer)
+        optimizer = tf.train.AdamOptimizer( learning_rate )
+        if params["use_tpu"]:
+            # tpu の場合、optimizer を以下のようにラップしてやる必要がある.
+            optimizer = tf.contrib.tpu.CrossShardOptimizer(optimizer)
         train_op = optimizer.minimize( loss, global_step=tf.train.get_global_step() )
 
-        # tf.train.Saver() の生成は graph 生成後でないとエラーになるのでここで設定している.        
+        # tf.train.Saver() の生成は graph 生成後でないとエラーになるのでここで設定している. 
         training_hooks = create_hooks( loss, params )
 
     spec = tf.contrib.tpu.TPUEstimatorSpec(
@@ -53,17 +63,13 @@ def model_fn_for_npair_loss( features, labels, mode, params ):
         training_hooks=training_hooks,
         predictions=predictions,
         loss=loss,
-        train_op=train_op,
-        scaffold_fn=None,
+        train_op=train_op
     )
-    # spec = tf.estimator.EstimatorSpec( mode=mode,
-    #                                    training_hooks=training_hooks,
-    #                                    predictions=predictions,
-    #                                    loss=loss,
-    #                                    train_op=train_op )
     return spec
 
 
+# tf.estimator.Estimator と違って、
+# tf.contrib.tpu.TPUEstimator の input_fn には params を引数とする関数を渡す必要がある.
 def train_input_fn3(params):
     NUM_THREADS = 4  # スレッド
     INPUT_TFRECORD_TRAIN = "npair_train.tfrecord"  # TFRecordファイル名（学習用）
@@ -72,41 +78,38 @@ def train_input_fn3(params):
 
     dataset = tf.data.TFRecordDataset(filenames)  # ファイル名を遅延評価するパイプを作成.
     dataset = dataset.map( read_function2, NUM_THREADS) # ファイル名からデータを作成する遅延評価するパイプを作成.
-    dataset = dataset.shuffle(60000)
-    # dataset = dataset.batch(BATCH_SIZE)  # 返すレコードの個数を指定.
-    # dataset = dataset.repeat(-1)  # 無限に繰り返す設定にする.
+    dataset = dataset.shuffle(60000)  # MNIST のデータサイズに合わせている.
 
-    # Assign static batch size dimension
-    dataset = dataset.map(functools.partial(self.set_shapes, BATCH_SIZE))
-    
-    # Prefetch overlaps in-feed with training
-    # dataset = dataset.prefetch(tf.contrib.data.AUTOTUNE)
-
+    # TPU においては dataset からとりだす tensor の shape を固定する必要がある。
+    # 普通の実行では端数のデータのバッチサイズが変わってしまうので、その分は切り落とすように
+    # 設定する必要がある.
+    dataset = dataset.repeat().apply(
+        tf.contrib.data.batch_and_drop_remainder(params['batch_size']))    
     return dataset
 
 def get_tpu_run_config(params):
     num_shards = 8
     iterations = 50
-    tpu_params = {
+    tpu_params_for_conenct = {
         "name": "ietomi-demo-tpu",
         "zone": "us-central1-b",
         "gcp_project": "image-search-224008",
     }
+
     tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(
-        tpu_params["name"],
-        zone=tpu_params['zone'],
-        project=tpu_params['gcp_project'])
+        tpu_params_for_conenct["name"],
+        zone=tpu_params_for_conenct['zone'],
+        project=tpu_params_for_conenct['gcp_project']
+    )
 
     # この作成時に account のアクセス状況をチェックしている.
-    #run_config = None
     run_config = tf.contrib.tpu.RunConfig(
         cluster=tpu_cluster_resolver,
         model_dir=params['model_dir'],
         save_checkpoints_steps=params["save_steps"],
-        tpu_config=tf.contrib.tpu.TPUConfig(
-                iterations_per_loop=iterations,
-                num_shards=num_shads,
-                per_host_input_for_training=tf.contrib.tpu.InputPipelineConfig.PER_HOST_V2)
+        session_config=tf.ConfigProto(
+            allow_soft_placement=True, log_device_placement=True),
+        tpu_config=tf.contrib.tpu.TPUConfig( iterations, num_shards )
         # tpu_config=tf.contrib.tpu.TPUConfig(
         #     per_host_input_for_training=tf.contrib.tpu.InputPipelineConfig.PER_HOST_V2),
     )
@@ -114,24 +117,32 @@ def get_tpu_run_config(params):
     return run_config
 
 def main():
-
-    random_seed_set(1) # seed=1 はたまたまうまくいったので使っている.    
+    if len(sys.argv) >= 2 and sys.argv[1] == "use_tpu":
+        use_tpu = True
+    else:
+        use_tpu = False  # local で実行する場合はここを False にして実行する。
+        
+    random_seed_set(1) # seed=1 はたまたまうまくいったので使っている.
+    BATCH_SIZE = 40  # バッチサイズは 8 の倍数でないとダメ.(TPUの制限)    
     model_dir = "model_dir_for_npair_loss"
-    print( "my_estimator start")
+    print( "my_estimator start, use_tpu =", use_tpu )
     params = {
         "model_dir": model_dir,  # モデルデータの保存場所.
         "save_steps": 100,  # 何ステップ毎にセーブするか.
         'log_step_count_steps': 100,
+        "use_tpu" : use_tpu,
+        "max_steps": 1000 
     }
 
-    run_config = get_tpu_run_config(params)
+    if params["use_tpu"]:
+        # ここで TPU への接続情報を設定してる.
+        run_config = get_tpu_run_config(params)
+    else:
+        # ローカル実行の場合はとりあえずのものを与えれば ok.
+        run_config = tf.contrib.tpu.RunConfig()
         
-    # my_estimator = tf.estimator.Estimator( model_fn=model_fn_for_npair_loss,
-    #                                        model_dir=model_dir,
-    #                                        params=params )
-
     tpu_estimator = tf.contrib.tpu.TPUEstimator(
-        use_tpu=True,
+        use_tpu=params["use_tpu"],
         model_fn=model_fn_for_npair_loss,
         config=run_config,
         train_batch_size=BATCH_SIZE,
@@ -140,12 +151,11 @@ def main():
         params=params
     )
     
-    tpu_estimator.train( input_fn=train_input_fn3, max_steps=1000 )
+    tpu_estimator.train( input_fn=train_input_fn3, max_steps=params["max_steps"] )
     
-    # my_estimator.train( input_fn=train_input_fn,
-    #                     steps=1000 )
     print( "train ok")
     return
 
+
 if __name__ == "__main__":
-    main()    
+    main()
