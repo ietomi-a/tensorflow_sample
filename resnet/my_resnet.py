@@ -7,14 +7,15 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 from tensorflow.contrib.losses import metric_learning
 
-
 from official.resnet import imagenet_main
 
 
-def create_network_resnet( inputs, embedding_dim, reuse=False ):
+def create_network_resnet( inputs, embedding_dim, is_training, reuse=False ):
     resnet_size = 50
-    model = imagenet_main.ImagenetModel( resnet_size, num_classes=embedding_dim )
-    ys = model(inputs)
+    model = imagenet_main.ImagenetModel( resnet_size,
+                                         num_classes=embedding_dim )
+    with tf.variable_scope("", reuse=reuse):
+        y = model(inputs, training=is_training)
     return y
 
 def random_seed_set( seed=0 ):
@@ -115,7 +116,15 @@ def main():
     return
     
 
-resnet_size = 50
+inputs = tf.placeholder( tf.float32, [None, 224,224,3] )
+inputs2 = tf.placeholder( tf.float32, [None, 224,224,3] )
 embedding_dim = 128
-model = imagenet_main.ImagenetModel( resnet_size, num_classes=embedding_dim )
+is_training = True
+y = create_network_resnet( inputs, embedding_dim, is_training, reuse=False )
+y2 = create_network_resnet( inputs2, embedding_dim, is_training, reuse=True )
+
 print("model create ok")
+for v in tf.global_variables():
+    print(v.name, v.shape)
+
+    
