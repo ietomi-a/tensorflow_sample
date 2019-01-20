@@ -124,7 +124,12 @@ y = create_network_resnet( inputs, embedding_dim, is_training, reuse=False )
 y2 = create_network_resnet( inputs2, embedding_dim, is_training, reuse=True )
 
 print("model create ok")
-for v in tf.global_variables():
-    print(v.name, v.shape)
+vars_to_warm_start = '^(?!.*dense)'
+
+# for v in tf.global_variables():
+#     print(v.name, v.shape)
 
     
+for v in tf.get_collection( tf.GraphKeys.GLOBAL_VARIABLES,
+                            vars_to_warm_start ):
+    print(v.name, v.shape)
